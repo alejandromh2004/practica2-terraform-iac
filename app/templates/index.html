@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokédex Containerizada - Práctica Docker</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --primary: #2563eb;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 24px;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .header-top h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .env-tag {
+            font-size: 0.85rem;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            background: #e0f2fe;
+            color: #0369a1;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 12px 0;
+            border-top: 1px solid #f1f5f9;
+            border-bottom: 1px solid #f1f5f9;
+            margin-bottom: 16px;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+
+        .badge-ok { background: #dcfce7; color: #15803d; }
+        .badge-off { background: #f1f5f9; color: #475569; }
+        .badge-err { background: #fee2e2; color: #b91c1c; }
+
+        /* Panel de Métricas Técnicas de Docker */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .metric-card {
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+
+        .metric-card .value {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--primary);
+            font-family: monospace;
+        }
+
+        .metric-card .label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .perf-banner {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: #eff6ff;
+            border-left: 4px solid var(--primary);
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .form-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 24px;
+        }
+
+        .form-card h3 {
+            margin: 0 0 14px 0;
+            font-size: 1.1rem;
+            color: #334155;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+        }
+
+        .form-grid input {
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .btn-submit {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .pokemon-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .poke-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+            position: relative;
+        }
+
+        .poke-num {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #94a3b8;
+        }
+
+        .poke-card img {
+            width: 120px;
+            height: 120px;
+            object-fit: contain;
+            margin: 10px 0;
+        }
+
+        .type-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #f1f5f9;
+            color: #475569;
+            margin-bottom: 12px;
+        }
+
+        .stats-box {
+            display: flex;
+            justify-content: space-around;
+            background: #f8fafc;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #334155;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <h1>Pokédex Docker</h1>
+                <span class="env-tag">{{ entorno }}</span>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-item">
+                    <span>PostgreSQL:</span>
+                    <span class="badge {{ 'badge-ok' if 'ONLINE' in db_status else 'badge-err' }}">{{ db_status }}</span>
+                </div>
+                <div class="status-item">
+                    <span>Redis (Caché):</span>
+                    <span class="badge {{ 'badge-ok' if 'ONLINE' in redis_status else ('badge-off' if 'DESACTIVADO' in redis_status else 'badge-err') }}">{{ redis_status }}</span>
+                </div>
+                <div class="status-item" style="margin-left: auto;">
+                    <a href="/status" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 0.85rem;"><code>/status</code> API ↗</a>
+                </div>
+            </div>
+
+            <!-- Métricas Técnicas del Contenedor Docker -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="value">{{ metrics.container_id }}</div>
+                    <div class="label">Container ID (Host)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">{{ metrics.mem_usage }}</div>
+                    <div class="label">Uso RAM Proceso</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">PID {{ metrics.pid }}</div>
+                    <div class="label">Proceso PID</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">{{ metrics.uptime }}</div>
+                    <div class="label">Uptime Contenedor</div>
+                </div>
+            </div>
+
+            <div class="perf-banner">
+                <div>
+                    <strong>Origen de Datos:</strong> {{ fuente_datos }}
+                </div>
+                <div>
+                    <strong>Latencia Petición:</strong> <code>{{ tiempo_ms }} ms</code>
+                    {% if 'PROD' in entorno %}
+                        <span class="badge {{ 'badge-ok' if cache_badge == 'HIT' else 'badge-off' }}" style="margin-left: 8px;">{{ cache_badge }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="form-card">
+            <h3>+ Agregar Pokémon (Prueba de Persistencia)</h3>
+            <form action="/agregar" method="POST">
+                <div class="form-grid">
+                    <input type="number" name="numero" placeholder="Nº (ej: 151)" required>
+                    <input type="text" name="nombre" placeholder="Nombre (ej: Mew)" required>
+                    <input type="text" name="tipo" placeholder="Tipo (ej: Psíquico)" required>
+                    <input type="number" name="hp" placeholder="HP (ej: 100)" required>
+                    <input type="number" name="ataque" placeholder="Ataque (ej: 100)" required>
+                    <input type="url" name="imagen_url" placeholder="URL Imagen (Opcional)">
+                    <button type="submit" class="btn-submit">Guardar</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="pokemon-grid">
+            {% for poke in pokemon_list %}
+                <div class="poke-card">
+                    <span class="poke-num">#{{ "%03d"|format(poke.numero) }}</span>
+                    <img src="{{ poke.imagen_url }}" alt="{{ poke.nombre }}" loading="lazy">
+                    <h3>{{ poke.nombre }}</h3>
+                    <span class="type-badge">{{ poke.tipo }}</span>
+                    <div class="stats-box">
+                        <span>❤️ {{ poke.hp }} HP</span>
+                        <span>⚔️ {{ poke.ataque }} ATK</span>
+                    </div>
+                </div>
+            {% else %}
+                <p>No hay datos disponibles. Comprueba la conexión con PostgreSQL.</p>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>
