@@ -35,24 +35,24 @@ variable "db_name" {
 
 variable "db_user" {
   type    = string
-  default = "usuario_ejemplo"
+  default = "pokedex_app_user"
 }
 
 variable "db_password" {
-  type      = string
-  sensitive = true
-  default   = "contrasena_segura_aqui"
+  type        = string
+  description = "Contraseña de PostgreSQL (definida en secret.auto.tfvars)"
+  sensitive   = true
 }
 
 variable "minio_user" {
   type    = string
-  default = "minioadmin"
+  default = "pokedex_s3_admin"
 }
 
 variable "minio_password" {
-  type      = string
-  sensitive = true
-  default   = "minioadmin123"
+  type        = string
+  description = "Clave secreta del almacenamiento S3 (definida en secret.auto.tfvars)"
+  sensitive   = true
 }
 
 variable "bucket_name" {
@@ -62,7 +62,7 @@ variable "bucket_name" {
 
 variable "discord_webhook_url" {
   type        = string
-  description = "URL del Webhook de Discord para Alertmanager (cargada desde secret.auto.tfvars)"
+  description = "URL del Webhook de Discord para Alertmanager (definida en secret.auto.tfvars)"
   default     = ""
   sensitive   = true
 }

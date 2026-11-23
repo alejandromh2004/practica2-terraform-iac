@@ -20,6 +20,15 @@
             color: var(--text-main);
         }
         .container { max-width: 1200px; margin: 0 auto; }
+        .alert-error {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 18px;
+            font-weight: 600;
+        }
         .header {
             background: var(--card-bg);
             padding: 24px;
@@ -184,10 +193,14 @@
 </head>
 <body>
     <div class="container">
+        {% if error_msg %}
+            <div class="alert-error">⚠️ {{ error_msg }}</div>
+        {% endif %}
+
         <div class="header">
             <div class="header-top">
                 <div class="title-wrap">
-                    <img src="{{ logo_url }}" alt="MinIO Static Logo" width="38" height="38">
+                    <img src="{{ logo_url }}" alt="S3 Static Logo" width="38" height="38">
                     <h1>Pokédex Cloud IaC</h1>
                 </div>
                 <span class="env-tag">{{ entorno }}</span>
@@ -196,15 +209,15 @@
             <div class="status-bar">
                 <div class="status-item">
                     <span>PostgreSQL:</span>
-                    <span class="badge {{ 'badge-ok' if 'ONLINE' in db_status else 'badge-err' }}">{{ db_status }}</span>
+                    <span id="badge-db" class="badge {{ 'badge-ok' if 'ONLINE' in db_status else 'badge-err' }}">{{ db_status }}</span>
                 </div>
                 <div class="status-item">
                     <span>Redis (Caché):</span>
-                    <span class="badge {{ 'badge-ok' if 'ONLINE' in redis_status else ('badge-off' if 'DESACTIVADO' in redis_status else 'badge-err') }}">{{ redis_status }}</span>
+                    <span id="badge-redis" class="badge {{ 'badge-ok' if 'ONLINE' in redis_status else ('badge-off' if 'DESACTIVADO' in redis_status else 'badge-err') }}">{{ redis_status }}</span>
                 </div>
                 <div class="status-item">
-                    <span>MinIO (S3):</span>
-                    <span class="badge {{ 'badge-ok' if 'ONLINE' in minio_status else 'badge-err' }}">{{ minio_status }}</span>
+                    <span>Storage (S3):</span>
+                    <span id="badge-minio" class="badge {{ 'badge-ok' if 'ONLINE' in minio_status else 'badge-err' }}">{{ minio_status }}</span>
                 </div>
                 <div class="status-item" style="margin-left: auto;">
                     <a href="/status" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 0.85rem;"><code>/status</code> API ↗</a>
@@ -242,15 +255,15 @@
         </div>
 
         <div class="form-card">
-            <h3>+ Agregar Pokémon (Guarda datos en PostgreSQL e imagen en MinIO S3)</h3>
+            <h3>+ Agregar Pokémon (Guarda datos en PostgreSQL e imagen en Storage S3)</h3>
             <form action="/agregar" method="POST" enctype="multipart/form-data">
                 <div class="form-grid">
-                    <input type="number" name="numero" placeholder="Nº (ej: 151)" required>
-                    <input type="text" name="nombre" placeholder="Nombre (ej: Mew)" required>
-                    <input type="text" name="tipo" placeholder="Tipo (ej: Psíquico)" required>
-                    <input type="number" name="hp" placeholder="HP (ej: 100)" required>
-                    <input type="number" name="ataque" placeholder="Ataque (ej: 100)" required>
-                    <input type="file" name="imagen_file" accept="image/*" title="Subir imagen a MinIO S3">
+                    <input type="number" name="numero" placeholder="Nº (ej: 151)" min="1" required>
+                    <input type="text" name="nombre" placeholder="Nombre (máx. 50 car.)" maxlength="50" required>
+                    <input type="text" name="tipo" placeholder="Tipo (máx. 50 car.)" maxlength="50" required>
+                    <input type="number" name="hp" placeholder="HP (ej: 100)" min="1" required>
+                    <input type="number" name="ataque" placeholder="Ataque (ej: 100)" min="1" required>
+                    <input type="file" name="imagen_file" accept="image/*" title="Subir imagen a S3">
                     <button type="submit" class="btn-submit">Guardar en Cloud</button>
                 </div>
             </form>
@@ -273,5 +286,33 @@
             {% endfor %}
         </div>
     </div>
+
+    <script>
+        function updateBadge(el, label, state) {
+            if (!el) return;
+            el.textContent = label;
+            el.className = 'badge ' + (
+                state === 'healthy' ? 'badge-ok' :
+                state === 'disabled' ? 'badge-off' : 'badge-err'
+            );
+        }
+
+        async function pollHealthStatus() {
+            try {
+                const res = await fetch('/status', { cache: 'no-store' });
+                const data = await res.json();
+                updateBadge(document.getElementById('badge-db'), data.database_label, data.database);
+                updateBadge(document.getElementById('badge-redis'), data.cache_label, data.cache);
+                updateBadge(document.getElementById('badge-minio'), data.storage_label, data.storage_s3);
+            } catch (e) {
+                updateBadge(document.getElementById('badge-db'), 'OFFLINE', 'unhealthy');
+                updateBadge(document.getElementById('badge-redis'), 'OFFLINE', 'unhealthy');
+                updateBadge(document.getElementById('badge-minio'), 'OFFLINE', 'unhealthy');
+            }
+        }
+
+        pollHealthStatus();
+        setInterval(pollHealthStatus, 4000);
+    </script>
 </body>
 </html>

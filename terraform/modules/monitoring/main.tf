@@ -193,7 +193,8 @@ resource "local_file" "alertmanager_conf" {
   content = templatefile("${path.module}/../../../config/alertmanager/alertmanager.yml.tftpl", {
     discord_webhook_url = var.discord_webhook_url
   })
-  filename = "${path.module}/../../.terraform/alertmanager_${var.environment}.yml"
+  filename        = "${path.module}/../../.terraform/alertmanager_${var.environment}.yml"
+  file_permission = "0600"
 }
 
 resource "docker_image" "alertmanager" {

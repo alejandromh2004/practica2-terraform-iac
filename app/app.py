@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import signal
+import sys
 import time
 import urllib.request
 from flask import Flask, jsonify, redirect, render_template, request, url_for
@@ -10,26 +12,43 @@ import psycopg2.extras
 import redis
 from werkzeug.utils import secure_filename
 
+# Salida limpia e inmediata ante SIGTERM (docker stop / terraform destroy)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
 app = Flask(__name__)
 UPTIME_START = time.time()
 
-# Configuración de PostgreSQL
+# Configuración de PostgreSQL (sin contraseñas por defecto en código)
 DB_HOST = os.getenv("DB_HOST", "db")
 DB_NAME = os.getenv("DB_NAME", "practica_db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_USER = os.getenv("DB_USER", "usuario_ejemplo")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 # Configuración de Redis (solo PROD)
 REDIS_HOST = os.getenv("REDIS_HOST", None)
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 
-# Configuración de MinIO (Almacenamiento de objetos S3)
+# Configuración de MinIO / SeaweedFS (Almacenamiento de objetos S3)
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "pokedex-static")
 MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", "http://localhost:9000")
+
+
+def log_error(context, err):
+    print(f"[ERROR] {context}: {err}", file=sys.stderr, flush=True)
+
+
+def get_redis_client():
+    return redis.Redis(
+        host=REDIS_HOST,
+        port=int(REDIS_PORT),
+        socket_timeout=2,
+        socket_connect_timeout=2,
+        decode_responses=True,
+    )
 
 
 def get_minio_client():
@@ -42,7 +61,7 @@ def get_minio_client():
 
 
 def ensure_static_assets():
-    """Sube un icono SVG estático al bucket de MinIO si no existe todavía."""
+    """Sube un icono SVG estático al bucket S3 si no existe todavía."""
     try:
         client = get_minio_client()
         if not client.bucket_exists(MINIO_BUCKET):
@@ -63,8 +82,8 @@ def ensure_static_assets():
                 len(svg_data),
                 content_type="image/svg+xml",
             )
-    except Exception:
-        pass
+    except Exception as e:
+        log_error("ensure_static_assets", e)
 
 
 def check_db_health():
@@ -80,23 +99,20 @@ def check_db_health():
         conn.close()
         return True, "ONLINE"
     except Exception as e:
-        return False, f"OFFLINE ({str(e)})"
+        log_error("check_db_health", e)
+        return False, "OFFLINE"
 
 
 def check_redis_health():
     if not REDIS_HOST:
         return False, "DESACTIVADO (DEV)"
     try:
-        r = redis.Redis(
-            host=REDIS_HOST,
-            port=int(REDIS_PORT),
-            socket_timeout=2,
-            decode_responses=True,
-        )
+        r = get_redis_client()
         r.ping()
         return True, "ONLINE"
     except Exception as e:
-        return False, f"OFFLINE ({str(e)})"
+        log_error("check_redis_health", e)
+        return False, "OFFLINE"
 
 
 def check_minio_health():
@@ -104,9 +120,10 @@ def check_minio_health():
         client = get_minio_client()
         if client.bucket_exists(MINIO_BUCKET):
             return True, "ONLINE (S3)"
-        return False, "BUCKET NO ENCONTRADO"
+        return False, "OFFLINE"
     except Exception as e:
-        return False, f"OFFLINE ({str(e)})"
+        log_error("check_minio_health", e)
+        return False, "OFFLINE"
 
 
 def fetch_pokemon_from_db():
@@ -150,42 +167,54 @@ def get_container_metrics():
 @app.route("/")
 def index():
     entorno = "Producción (PRO)" if REDIS_HOST else "Desarrollo (DEV)"
+    error_msg = request.args.get("error", "")
     ensure_static_assets()
 
-    db_ok, db_status = check_db_health()
-    redis_ok, redis_status = check_redis_health()
     minio_ok, minio_status = check_minio_health()
+    db_status = "ONLINE"
+    redis_status = "DESACTIVADO (DEV)"
 
     pokemon_list = []
     fuente_datos = "Ninguna"
     cache_badge = "N/A"
     inicio = time.perf_counter()
 
-    if REDIS_HOST and redis_ok:
+    # 1. En PRO intentamos leer primero de Redis sin abrir conexión extra a PostgreSQL
+    served_from_cache = False
+    if REDIS_HOST:
         try:
-            r = redis.Redis(
-                host=REDIS_HOST,
-                port=int(REDIS_PORT),
-                socket_timeout=2,
-                decode_responses=True,
-            )
+            r = get_redis_client()
             datos_cache = r.get("cartas_pokemon")
+            redis_status = "ONLINE"
             if datos_cache:
                 pokemon_list = json.loads(datos_cache)
                 fuente_datos = "Caché Redis (Memoria RAM ⚡)"
                 cache_badge = "HIT"
-            elif db_ok:
-                pokemon_list = fetch_pokemon_from_db()
-                r.setex("cartas_pokemon", 30, json.dumps(pokemon_list))
-                fuente_datos = "PostgreSQL (Guardado en Redis por 30s)"
-                cache_badge = "MISS"
-        except Exception:
-            if db_ok:
-                pokemon_list = fetch_pokemon_from_db()
-                fuente_datos = "PostgreSQL (Fallback por fallo de caché)"
-    elif db_ok:
-        pokemon_list = fetch_pokemon_from_db()
-        fuente_datos = "PostgreSQL (Directo de BD)"
+                served_from_cache = True
+        except Exception as e:
+            log_error("redis_read", e)
+            redis_status = "OFFLINE"
+
+    # 2. Si no hubo HIT en caché (MISS o DEV), consultamos PostgreSQL protegidos contra race conditions
+    if not served_from_cache:
+        try:
+            pokemon_list = fetch_pokemon_from_db()
+            db_status = "ONLINE"
+            if REDIS_HOST and redis_status == "ONLINE":
+                try:
+                    r = get_redis_client()
+                    r.setex("cartas_pokemon", 30, json.dumps(pokemon_list))
+                    fuente_datos = "PostgreSQL (Guardado en Redis por 30s)"
+                    cache_badge = "MISS"
+                except Exception as e:
+                    log_error("redis_write", e)
+                    fuente_datos = "PostgreSQL (Directo de BD)"
+            else:
+                fuente_datos = "PostgreSQL (Directo de BD)"
+        except Exception as e:
+            log_error("fetch_pokemon_from_db", e)
+            db_status = "OFFLINE"
+            fuente_datos = "Error al conectar con PostgreSQL"
 
     fin = time.perf_counter()
     tiempo_ms = round((fin - inicio) * 1000, 2)
@@ -195,6 +224,7 @@ def index():
     return render_template(
         "index.html",
         entorno=entorno,
+        error_msg=error_msg,
         db_status=db_status,
         redis_status=redis_status,
         minio_status=minio_status,
@@ -210,16 +240,21 @@ def index():
 @app.route("/agregar", methods=["POST"])
 def agregar_pokemon():
     numero = request.form.get("numero", type=int)
-    nombre = request.form.get("nombre", type=str)
-    tipo = request.form.get("tipo", type=str)
+    nombre = (request.form.get("nombre", type=str) or "").strip()
+    tipo = (request.form.get("tipo", type=str) or "").strip()
     hp = request.form.get("hp", type=int)
     ataque = request.form.get("ataque", type=int)
-    imagen_url = request.form.get("imagen_url", type=str)
+    imagen_url = (request.form.get("imagen_url", type=str) or "").strip()
     imagen_file = request.files.get("imagen_file")
+
+    # Validación explícita para evitar fallos silenciosos con VARCHAR(50)
+    if not numero or not nombre or not tipo or hp is None or ataque is None:
+        return redirect(url_for("index", error="Todos los campos obligatorios deben rellenarse."))
+    if len(nombre) > 50 or len(tipo) > 50:
+        return redirect(url_for("index", error="El nombre y el tipo no pueden superar los 50 caracteres."))
 
     client = get_minio_client()
 
-    # 1. Si el usuario sube un archivo local, lo guardamos en MinIO S3
     if imagen_file and imagen_file.filename:
         try:
             filename = f"{numero}_{secure_filename(imagen_file.filename)}"
@@ -232,9 +267,9 @@ def agregar_pokemon():
                 content_type=imagen_file.content_type or "application/octet-stream",
             )
             imagen_url = f"{MINIO_PUBLIC_URL}/{MINIO_BUCKET}/{filename}"
-        except Exception:
-            pass
-    # 2. Si no sube archivo ni URL, descargamos el sprite oficial y lo almacenamos en MinIO S3
+        except Exception as e:
+            log_error("s3_upload", e)
+            return redirect(url_for("index", error="No se pudo subir la imagen al almacenamiento S3."))
     elif not imagen_url:
         default_sprite = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{numero}.png"
         try:
@@ -249,7 +284,8 @@ def agregar_pokemon():
                 content_type="image/png",
             )
             imagen_url = f"{MINIO_PUBLIC_URL}/{MINIO_BUCKET}/{filename}"
-        except Exception:
+        except Exception as e:
+            log_error("s3_default_sprite", e)
             imagen_url = default_sprite
 
     try:
@@ -266,21 +302,23 @@ def agregar_pokemon():
             """
             INSERT INTO pokemon (numero, nombre, tipo, hp, ataque, imagen_url)
             VALUES (%s, %s, %s, %s, %s, %s);
-        """,
+            """,
             (numero, nombre, tipo, hp, ataque, imagen_url),
         )
         conn.commit()
         cur.close()
         conn.close()
+    except Exception as e:
+        log_error("insert_pokemon", e)
+        return redirect(url_for("index", error="Error al guardar el Pokémon en PostgreSQL."))
 
-        if REDIS_HOST:
-            try:
-                r = redis.Redis(host=REDIS_HOST, port=int(REDIS_PORT))
-                r.delete("cartas_pokemon")
-            except Exception:
-                pass
-    except Exception:
-        pass
+    # Invalidación de caché protegida con socket_timeout para no colgarse si Redis cae
+    if REDIS_HOST:
+        try:
+            r = get_redis_client()
+            r.delete("cartas_pokemon")
+        except Exception as e:
+            log_error("redis_invalidate", e)
 
     return redirect(url_for("index"))
 
@@ -288,9 +326,9 @@ def agregar_pokemon():
 @app.route("/status")
 @app.route("/health")
 def status():
-    db_ok, _ = check_db_health()
-    redis_ok, _ = check_redis_health()
-    minio_ok, _ = check_minio_health()
+    db_ok, db_label = check_db_health()
+    redis_ok, redis_label = check_redis_health()
+    minio_ok, minio_label = check_minio_health()
 
     sistema_sano = db_ok and minio_ok and (redis_ok if REDIS_HOST else True)
 
@@ -299,12 +337,15 @@ def status():
             {
                 "status": "healthy" if sistema_sano else "degraded",
                 "database": "healthy" if db_ok else "unhealthy",
+                "database_label": db_label,
                 "cache": (
                     "healthy"
                     if redis_ok
                     else ("disabled" if not REDIS_HOST else "unhealthy")
                 ),
+                "cache_label": redis_label,
                 "storage_s3": "healthy" if minio_ok else "unhealthy",
+                "storage_label": minio_label,
             }
         ),
         200 if sistema_sano else 503,
