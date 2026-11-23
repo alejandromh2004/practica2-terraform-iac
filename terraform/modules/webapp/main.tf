@@ -1,13 +1,16 @@
-# 1. Construcción de la imagen Docker de la App Flask desde la raíz del proyecto
+# 1. Construcción de la imagen Docker de la App Flask
 resource "docker_image" "app" {
   name = "pokedex-app:${var.environment}"
   build {
     context    = abspath("${path.module}/../../../app")
     dockerfile = "Dockerfile"
   }
+  triggers = {
+    dir_sha1 = sha1(join("", [for f in fileset("${path.module}/../../../app", "**") : filesha1("${path.module}/../../../app/${f}")]))
+  }
 }
 
-# 2. Despliegue de las réplicas de Flask (count = 2 en DEV, count = 3 en PRO)
+# 2. Despliegue de las réplicas de Flask
 resource "docker_container" "app_replicas" {
   count    = var.app_replicas
   name     = "${var.environment}-app-${count.index + 1}"
@@ -21,7 +24,12 @@ resource "docker_container" "app_replicas" {
       "DB_NAME=${var.db_name}",
       "DB_USER=${var.db_user}",
       "DB_PASSWORD=${var.db_password}",
-      "DB_PORT=5432"
+      "DB_PORT=5432",
+      "MINIO_ENDPOINT=${var.minio_endpoint}",
+      "MINIO_ACCESS_KEY=${var.minio_access_key}",
+      "MINIO_SECRET_KEY=${var.minio_secret_key}",
+      "MINIO_BUCKET=${var.minio_bucket}",
+      "MINIO_PUBLIC_URL=${var.minio_public_url}"
     ],
     var.redis_host != null ? [
       "REDIS_HOST=${var.redis_host}",
@@ -40,7 +48,7 @@ resource "docker_image" "nginx" {
   keep_locally = true
 }
 
-# 4. Generación dinámica del archivo de configuración Nginx usando templatefile()
+# 4. Generación dinámica del archivo de configuración Nginx
 resource "local_file" "nginx_conf" {
   content = templatefile("${path.module}/../../../config/nginx/lb.conf.tftpl", {
     backend_names = docker_container.app_replicas[*].name

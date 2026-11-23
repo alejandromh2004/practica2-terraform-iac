@@ -1,0 +1,29 @@
+groups:
+  - name: pokedex_alerts
+    rules:
+      - alert: ReplicaWebCaida
+        expr: count(time() - container_last_seen{name=~"pro-app-.*"} < 15) < 3
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Réplica de Flask caída en PRO"
+          description: "Hay menos de 3 instancias de pro-app activas detrás del balanceador."
+
+      - alert: ServicioCriticoCaido
+        expr: absent(time() - container_last_seen{name="pro-postgres"} < 15) or absent(time() - container_last_seen{name="pro-redis"} < 15)
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Base de datos o Redis caído en PRO"
+          description: "pro-postgres o pro-redis ha dejado de responder."
+
+      - alert: AltoConsumoMemoria
+        expr: (container_memory_usage_bytes{name=~"pro-.*"} / 1024 / 1024) > 300
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alto consumo de RAM en {{ $labels.name }}"
+          description: "El contenedor supera los 300 MB de memoria."

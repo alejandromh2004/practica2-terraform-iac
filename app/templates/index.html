@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pokédex Containerizada - Práctica Docker</title>
+    <title>Pokédex Cloud - Terraform IaC</title>
     <style>
         :root {
             --bg-color: #f8fafc;
@@ -12,7 +12,6 @@
             --text-main: #0f172a;
             --text-muted: #64748b;
         }
-
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
@@ -20,12 +19,7 @@
             background-color: var(--bg-color);
             color: var(--text-main);
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
+        .container { max-width: 1200px; margin: 0 auto; }
         .header {
             background: var(--card-bg);
             padding: 24px;
@@ -34,7 +28,6 @@
             margin-bottom: 24px;
             border: 1px solid #e2e8f0;
         }
-
         .header-top {
             display: flex;
             justify-content: space-between;
@@ -43,12 +36,8 @@
             gap: 12px;
             margin-bottom: 16px;
         }
-
-        .header-top h1 {
-            margin: 0;
-            font-size: 1.8rem;
-        }
-
+        .title-wrap { display: flex; align-items: center; gap: 12px; }
+        .header-top h1 { margin: 0; font-size: 1.8rem; }
         .env-tag {
             font-size: 0.85rem;
             padding: 4px 12px;
@@ -57,7 +46,6 @@
             background: #e0f2fe;
             color: #0369a1;
         }
-
         .status-bar {
             display: flex;
             gap: 16px;
@@ -67,7 +55,6 @@
             border-bottom: 1px solid #f1f5f9;
             margin-bottom: 16px;
         }
-
         .status-item {
             display: flex;
             align-items: center;
@@ -75,26 +62,21 @@
             font-size: 0.9rem;
             font-weight: 500;
         }
-
         .badge {
             padding: 4px 10px;
             border-radius: 6px;
             font-weight: 700;
             font-size: 0.8rem;
         }
-
         .badge-ok { background: #dcfce7; color: #15803d; }
         .badge-off { background: #f1f5f9; color: #475569; }
         .badge-err { background: #fee2e2; color: #b91c1c; }
-
-        /* Panel de Métricas Técnicas de Docker */
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
             margin-top: 16px;
         }
-
         .metric-card {
             background: #f8fafc;
             padding: 12px;
@@ -102,14 +84,12 @@
             text-align: center;
             border: 1px solid #e2e8f0;
         }
-
         .metric-card .value {
             font-size: 1.2rem;
             font-weight: 800;
             color: var(--primary);
             font-family: monospace;
         }
-
         .metric-card .label {
             font-size: 0.75rem;
             color: var(--text-muted);
@@ -117,7 +97,6 @@
             letter-spacing: 0.5px;
             margin-top: 2px;
         }
-
         .perf-banner {
             margin-top: 16px;
             padding: 12px 16px;
@@ -131,7 +110,6 @@
             flex-wrap: wrap;
             gap: 10px;
         }
-
         .form-card {
             background: var(--card-bg);
             padding: 20px;
@@ -139,26 +117,18 @@
             border: 1px solid #e2e8f0;
             margin-bottom: 24px;
         }
-
-        .form-card h3 {
-            margin: 0 0 14px 0;
-            font-size: 1.1rem;
-            color: #334155;
-        }
-
+        .form-card h3 { margin: 0 0 14px 0; font-size: 1.1rem; color: #334155; }
         .form-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 10px;
         }
-
         .form-grid input {
             padding: 10px 12px;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             font-size: 0.9rem;
         }
-
         .btn-submit {
             background: var(--primary);
             color: white;
@@ -168,13 +138,11 @@
             font-weight: 700;
             cursor: pointer;
         }
-
         .pokemon-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
             gap: 20px;
         }
-
         .poke-card {
             background: var(--card-bg);
             border-radius: 16px;
@@ -183,7 +151,6 @@
             text-align: center;
             position: relative;
         }
-
         .poke-num {
             position: absolute;
             top: 14px;
@@ -192,14 +159,7 @@
             font-weight: 700;
             color: #94a3b8;
         }
-
-        .poke-card img {
-            width: 120px;
-            height: 120px;
-            object-fit: contain;
-            margin: 10px 0;
-        }
-
+        .poke-card img { width: 120px; height: 120px; object-fit: contain; margin: 10px 0; }
         .type-badge {
             display: inline-block;
             padding: 3px 10px;
@@ -210,7 +170,6 @@
             color: #475569;
             margin-bottom: 12px;
         }
-
         .stats-box {
             display: flex;
             justify-content: space-around;
@@ -227,7 +186,10 @@
     <div class="container">
         <div class="header">
             <div class="header-top">
-                <h1>Pokédex Docker</h1>
+                <div class="title-wrap">
+                    <img src="{{ logo_url }}" alt="MinIO Static Logo" width="38" height="38">
+                    <h1>Pokédex Cloud IaC</h1>
+                </div>
                 <span class="env-tag">{{ entorno }}</span>
             </div>
 
@@ -240,16 +202,19 @@
                     <span>Redis (Caché):</span>
                     <span class="badge {{ 'badge-ok' if 'ONLINE' in redis_status else ('badge-off' if 'DESACTIVADO' in redis_status else 'badge-err') }}">{{ redis_status }}</span>
                 </div>
+                <div class="status-item">
+                    <span>MinIO (S3):</span>
+                    <span class="badge {{ 'badge-ok' if 'ONLINE' in minio_status else 'badge-err' }}">{{ minio_status }}</span>
+                </div>
                 <div class="status-item" style="margin-left: auto;">
                     <a href="/status" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 0.85rem;"><code>/status</code> API ↗</a>
                 </div>
             </div>
 
-            <!-- Métricas Técnicas del Contenedor Docker -->
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="value">{{ metrics.container_id }}</div>
-                    <div class="label">Container ID (Host)</div>
+                    <div class="label">Instancia (Round-Robin)</div>
                 </div>
                 <div class="metric-card">
                     <div class="value">{{ metrics.mem_usage }}</div>
@@ -266,12 +231,10 @@
             </div>
 
             <div class="perf-banner">
-                <div>
-                    <strong>Origen de Datos:</strong> {{ fuente_datos }}
-                </div>
+                <div><strong>Origen de Datos:</strong> {{ fuente_datos }}</div>
                 <div>
                     <strong>Latencia Petición:</strong> <code>{{ tiempo_ms }} ms</code>
-                    {% if 'PROD' in entorno %}
+                    {% if 'PRO' in entorno %}
                         <span class="badge {{ 'badge-ok' if cache_badge == 'HIT' else 'badge-off' }}" style="margin-left: 8px;">{{ cache_badge }}</span>
                     {% endif %}
                 </div>
@@ -279,16 +242,16 @@
         </div>
 
         <div class="form-card">
-            <h3>+ Agregar Pokémon (Prueba de Persistencia)</h3>
-            <form action="/agregar" method="POST">
+            <h3>+ Agregar Pokémon (Guarda datos en PostgreSQL e imagen en MinIO S3)</h3>
+            <form action="/agregar" method="POST" enctype="multipart/form-data">
                 <div class="form-grid">
                     <input type="number" name="numero" placeholder="Nº (ej: 151)" required>
                     <input type="text" name="nombre" placeholder="Nombre (ej: Mew)" required>
                     <input type="text" name="tipo" placeholder="Tipo (ej: Psíquico)" required>
                     <input type="number" name="hp" placeholder="HP (ej: 100)" required>
                     <input type="number" name="ataque" placeholder="Ataque (ej: 100)" required>
-                    <input type="url" name="imagen_url" placeholder="URL Imagen (Opcional)">
-                    <button type="submit" class="btn-submit">Guardar</button>
+                    <input type="file" name="imagen_file" accept="image/*" title="Subir imagen a MinIO S3">
+                    <button type="submit" class="btn-submit">Guardar en Cloud</button>
                 </div>
             </form>
         </div>

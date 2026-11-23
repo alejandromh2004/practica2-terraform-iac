@@ -1,38 +1,73 @@
+import io
 import json
 import os
 import time
+import urllib.request
 from flask import Flask, jsonify, redirect, render_template, request, url_for
+from minio import Minio
 import psycopg2
 import psycopg2.extras
 import redis
+from werkzeug.utils import secure_filename
 
-# Inicialización de la aplicación Flask
 app = Flask(__name__)
-
-# Marca de tiempo global para calcular el Uptime (tiempo activo) del contenedor
 UPTIME_START = time.time()
 
-# ==============================================================================
-# REQUISITO DE SEGURIDAD: Sin credenciales ni configuraciones "hardcodeadas"
-# Se leen todas las variables de entorno inyectadas desde .env.dev / .env.prod
-# ==============================================================================
+# Configuración de PostgreSQL
 DB_HOST = os.getenv("DB_HOST", "db")
 DB_NAME = os.getenv("DB_NAME", "practica_db")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
-# REDIS_HOST solo estará presente en el entorno de Producción (.env.prod)
+# Configuración de Redis (solo PROD)
 REDIS_HOST = os.getenv("REDIS_HOST", None)
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 
+# Configuración de MinIO (Almacenamiento de objetos S3)
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "pokedex-static")
+MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", "http://localhost:9000")
 
-# ==============================================================================
-# REQUISITO REQUERIDO: Comprobación dinámica del estado de los servicios
-# Evalúa la conexión con PostgreSQL en tiempo real sin bloquear la app
-# ==============================================================================
+
+def get_minio_client():
+    return Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
+
+
+def ensure_static_assets():
+    """Sube un icono SVG estático al bucket de MinIO si no existe todavía."""
+    try:
+        client = get_minio_client()
+        if not client.bucket_exists(MINIO_BUCKET):
+            client.make_bucket(MINIO_BUCKET)
+        try:
+            client.stat_object(MINIO_BUCKET, "pokeball.svg")
+        except Exception:
+            svg_data = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="40" height="40">
+              <circle cx="50" cy="50" r="45" fill="#fff" stroke="#0f172a" stroke-width="6"/>
+              <path d="M5 50a45 45 0 0 1 90 0z" fill="#ef4444" stroke="#0f172a" stroke-width="6"/>
+              <line x1="5" y1="50" x2="95" y2="50" stroke="#0f172a" stroke-width="6"/>
+              <circle cx="50" cy="50" r="14" fill="#fff" stroke="#0f172a" stroke-width="6"/>
+            </svg>"""
+            client.put_object(
+                MINIO_BUCKET,
+                "pokeball.svg",
+                io.BytesIO(svg_data),
+                len(svg_data),
+                content_type="image/svg+xml",
+            )
+    except Exception:
+        pass
+
+
 def check_db_health():
-    """Verifica si la base de datos PostgreSQL responde a peticiones."""
     try:
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -49,7 +84,6 @@ def check_db_health():
 
 
 def check_redis_health():
-    """Verifica la salud del servicio de caché Redis (solo activo en PROD)."""
     if not REDIS_HOST:
         return False, "DESACTIVADO (DEV)"
     try:
@@ -65,8 +99,17 @@ def check_redis_health():
         return False, f"OFFLINE ({str(e)})"
 
 
+def check_minio_health():
+    try:
+        client = get_minio_client()
+        if client.bucket_exists(MINIO_BUCKET):
+            return True, "ONLINE (S3)"
+        return False, "BUCKET NO ENCONTRADO"
+    except Exception as e:
+        return False, f"OFFLINE ({str(e)})"
+
+
 def fetch_pokemon_from_db():
-    """Consulta la lista de Pokémon directamente en PostgreSQL."""
     conn = psycopg2.connect(
         host=DB_HOST,
         database=DB_NAME,
@@ -86,14 +129,8 @@ def fetch_pokemon_from_db():
 
 
 def get_container_metrics():
-    """
-    Métricas técnicas del propio contenedor Docker.
-    Permite visualizar el ID del contenedor (Hostname), consumo RAM y PID.
-    """
     pid = os.getpid()
-    hostname = os.uname().nodename  # Corresponde al ID corto del contenedor en Docker
-
-    # Lectura del uso de memoria en RAM desde el sistema de archivos del kernel Linux /proc
+    hostname = os.uname().nodename
     mem_mb = "N/A"
     try:
         with open("/proc/self/statm", "r") as f:
@@ -101,37 +138,29 @@ def get_container_metrics():
             mem_mb = f"{round((pages * 4096) / (1024 * 1024), 1)} MB"
     except Exception:
         pass
-
     uptime_sec = int(time.time() - UPTIME_START)
-
     return {
-        "container_id": hostname[:12],
+        "container_id": hostname[:16],
         "pid": pid,
         "mem_usage": mem_mb,
         "uptime": f"{uptime_sec}s",
     }
 
 
-# ==============================================================================
-# RUTA PRINCIPAL (UI WEB)
-# Muestra el estado del entorno, métricas y aplica la lógica de Caché (Redis)
-# ==============================================================================
 @app.route("/")
 def index():
-    entorno = "Producción (PROD)" if REDIS_HOST else "Desarrollo (DEV)"
+    entorno = "Producción (PRO)" if REDIS_HOST else "Desarrollo (DEV)"
+    ensure_static_assets()
 
-    # Comprobación dinámica e independiente del estado de los servicios
     db_ok, db_status = check_db_health()
     redis_ok, redis_status = check_redis_health()
+    minio_ok, minio_status = check_minio_health()
 
     pokemon_list = []
     fuente_datos = "Ninguna"
     cache_badge = "N/A"
-
-    # Cronómetro para medir la latencia total de la consulta
     inicio = time.perf_counter()
 
-    # REQUISITO CACHÉ: En PROD se intenta leer primero de Redis
     if REDIS_HOST and redis_ok:
         try:
             r = redis.Redis(
@@ -142,35 +171,34 @@ def index():
             )
             datos_cache = r.get("cartas_pokemon")
             if datos_cache:
-                # CACHE HIT: Datos servidos directamente desde la RAM de Redis (~1 ms)
                 pokemon_list = json.loads(datos_cache)
                 fuente_datos = "Caché Redis (Memoria RAM ⚡)"
                 cache_badge = "HIT"
             elif db_ok:
-                # CACHE MISS: Se lee de PostgreSQL y se guarda en Redis con TTL de 30s
                 pokemon_list = fetch_pokemon_from_db()
                 r.setex("cartas_pokemon", 30, json.dumps(pokemon_list))
                 fuente_datos = "PostgreSQL (Guardado en Redis por 30s)"
                 cache_badge = "MISS"
         except Exception:
-            # FALLBACK DE SEGURIDAD: Si falla Redis, la app sigue viva leyendo de PostgreSQL
             if db_ok:
                 pokemon_list = fetch_pokemon_from_db()
                 fuente_datos = "PostgreSQL (Fallback por fallo de caché)"
     elif db_ok:
-        # En DEV (o si Redis no está configurado), se consulta PostgreSQL directamente
         pokemon_list = fetch_pokemon_from_db()
         fuente_datos = "PostgreSQL (Directo de BD)"
 
     fin = time.perf_counter()
     tiempo_ms = round((fin - inicio) * 1000, 2)
     metrics = get_container_metrics()
+    logo_url = f"{MINIO_PUBLIC_URL}/{MINIO_BUCKET}/pokeball.svg"
 
     return render_template(
         "index.html",
         entorno=entorno,
         db_status=db_status,
         redis_status=redis_status,
+        minio_status=minio_status,
+        logo_url=logo_url,
         pokemon_list=pokemon_list,
         fuente_datos=fuente_datos,
         tiempo_ms=tiempo_ms,
@@ -179,10 +207,6 @@ def index():
     )
 
 
-# ==============================================================================
-# REQUISITO PERSISTENCIA Y ESCRITURA: Alta de nuevos registros
-# Invalida la caché de Redis al escribir para garantizar consistencia de datos
-# ==============================================================================
 @app.route("/agregar", methods=["POST"])
 def agregar_pokemon():
     numero = request.form.get("numero", type=int)
@@ -191,9 +215,42 @@ def agregar_pokemon():
     hp = request.form.get("hp", type=int)
     ataque = request.form.get("ataque", type=int)
     imagen_url = request.form.get("imagen_url", type=str)
+    imagen_file = request.files.get("imagen_file")
 
-    if not imagen_url:
-        imagen_url = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{numero}.png"
+    client = get_minio_client()
+
+    # 1. Si el usuario sube un archivo local, lo guardamos en MinIO S3
+    if imagen_file and imagen_file.filename:
+        try:
+            filename = f"{numero}_{secure_filename(imagen_file.filename)}"
+            data = imagen_file.read()
+            client.put_object(
+                MINIO_BUCKET,
+                filename,
+                io.BytesIO(data),
+                len(data),
+                content_type=imagen_file.content_type or "application/octet-stream",
+            )
+            imagen_url = f"{MINIO_PUBLIC_URL}/{MINIO_BUCKET}/{filename}"
+        except Exception:
+            pass
+    # 2. Si no sube archivo ni URL, descargamos el sprite oficial y lo almacenamos en MinIO S3
+    elif not imagen_url:
+        default_sprite = f"https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{numero}.png"
+        try:
+            req = urllib.request.urlopen(default_sprite, timeout=4)
+            data = req.read()
+            filename = f"pokemon_{numero}.png"
+            client.put_object(
+                MINIO_BUCKET,
+                filename,
+                io.BytesIO(data),
+                len(data),
+                content_type="image/png",
+            )
+            imagen_url = f"{MINIO_PUBLIC_URL}/{MINIO_BUCKET}/{filename}"
+        except Exception:
+            imagen_url = default_sprite
 
     try:
         conn = psycopg2.connect(
@@ -216,8 +273,6 @@ def agregar_pokemon():
         cur.close()
         conn.close()
 
-        # INVALIDACIÓN DE CACHÉ: Al insertar en la BD, borramos la clave en Redis
-        # para forzar que la siguiente lectura traiga los datos actualizados
         if REDIS_HOST:
             try:
                 r = redis.Redis(host=REDIS_HOST, port=int(REDIS_PORT))
@@ -230,22 +285,14 @@ def agregar_pokemon():
     return redirect(url_for("index"))
 
 
-# ==============================================================================
-# REQUISITO OBLIGATORIO: Endpoints técnicos /status y /health
-# Utilizados por los Healthchecks de Docker y para monitoreo externo
-# ==============================================================================
 @app.route("/status")
 @app.route("/health")
 def status():
-    """
-    Devuelve un JSON con el estado de salud de los servicios dependientes.
-    Si algún servicio crítico falla, responde con código HTTP 503 (Service Unavailable).
-    """
     db_ok, _ = check_db_health()
     redis_ok, _ = check_redis_health()
+    minio_ok, _ = check_minio_health()
 
-    # En PROD ambos deben estar sanos; en DEV solo se requiere PostgreSQL
-    sistema_sano = db_ok and (redis_ok if REDIS_HOST else True)
+    sistema_sano = db_ok and minio_ok and (redis_ok if REDIS_HOST else True)
 
     return (
         jsonify(
@@ -257,12 +304,12 @@ def status():
                     if redis_ok
                     else ("disabled" if not REDIS_HOST else "unhealthy")
                 ),
+                "storage_s3": "healthy" if minio_ok else "unhealthy",
             }
         ),
         200 if sistema_sano else 503,
     )
 
 
-# Punto de entrada de la aplicación en el puerto 5000 dentro del contenedor
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

@@ -19,3 +19,8 @@ variable "redis_host" {
   type    = string
   default = null 
 }
+variable "minio_endpoint" { type = string }
+variable "minio_access_key" { type = string }
+variable "minio_secret_key" { type = string }
+variable "minio_bucket" { type = string }
+variable "minio_public_url" { type = string }
