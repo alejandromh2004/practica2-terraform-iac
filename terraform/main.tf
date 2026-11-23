@@ -11,68 +11,66 @@ terraform {
 provider "docker" {}
 
 locals {
-  env             = terraform.workspace
-  minio_api_port  = local.env == "pro" ? 9010 : 9000
-  minio_cons_port = local.env == "pro" ? 9011 : 9001
+  env = terraform.workspace
 }
 
-# 1. Módulo de Red
+# 1. Módulo de Red aislada por entorno
 module "net" {
   source      = "./modules/network"
   environment = local.env
 }
 
-# 2. Módulo de Base de Datos y Caché
+# 2. Módulo de Base de Datos (PostgreSQL) y Caché (Redis en PRO)
 module "db" {
   source       = "./modules/database"
   environment  = local.env
   network_name = module.net.network_name
-  db_name      = "practica_db"
-  db_user      = "usuario_ejemplo"
-  db_password  = "contrasena_segura_aqui"
-  enable_redis = local.env == "pro" ? true : false
+  db_name      = var.db_name
+  db_user      = var.db_user
+  db_password  = var.db_password
+  enable_redis = var.enable_redis
 }
 
-# 3. Módulo de Almacenamiento de Objetos (SeaweedFS / S3)
+# 3. Módulo de Almacenamiento de Objetos compatible con AWS S3 (SeaweedFS)
 module "storage" {
   source         = "./modules/storage"
   environment    = local.env
   network_name   = module.net.network_name
-  api_port       = local.minio_api_port
-  console_port   = local.minio_cons_port
-  minio_user     = "minioadmin"
-  minio_password = "minioadmin123"
-  bucket_name    = "pokedex-static"
+  api_port       = var.minio_api_port
+  console_port   = var.minio_console_port
+  minio_user     = var.minio_user
+  minio_password = var.minio_password
+  bucket_name    = var.bucket_name
 }
 
-# 4. Módulo Web & Balanceador de Carga
+# 4. Módulo Web (Réplicas Flask + Balanceador Round-Robin Nginx)
 module "webapp" {
   source        = "./modules/webapp"
   environment   = local.env
   network_name  = module.net.network_name
-  app_replicas  = local.env == "pro" ? 3 : 2
-  external_port = local.env == "pro" ? 5001 : 5000
+  app_replicas  = var.app_replicas
+  external_port = var.external_port
 
   db_host     = "${local.env}-postgres"
-  db_name     = "practica_db"
-  db_user     = "usuario_ejemplo"
-  db_password = "contrasena_segura_aqui"
-  redis_host  = local.env == "pro" ? "${local.env}-redis" : null
+  db_name     = var.db_name
+  db_user     = var.db_user
+  db_password = var.db_password
+  redis_host  = var.enable_redis ? "${local.env}-redis" : null
 
   minio_endpoint   = module.storage.minio_endpoint
-  minio_access_key = "minioadmin"
-  minio_secret_key = "minioadmin123"
+  minio_access_key = var.minio_user
+  minio_secret_key = var.minio_password
   minio_bucket     = module.storage.bucket_name
-  minio_public_url = "http://localhost:${local.minio_api_port}"
+  minio_public_url = "http://localhost:${var.minio_api_port}"
 
   depends_on = [module.db, module.storage]
 }
 
-# 5. Módulo de Observabilidad (Métricas, Logs y Alertas)
+# 5. Módulo de Observabilidad y Alertas (Red interna aislada + Grafana + Discord)
 module "monitoring" {
   source              = "./modules/monitoring"
   environment         = local.env
   network_name        = module.net.network_name
-  enable_monitoring   = local.env == "pro" ? true : false
+  enable_monitoring   = var.enable_monitoring
   discord_webhook_url = var.discord_webhook_url
 }
