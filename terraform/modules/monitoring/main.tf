@@ -1,4 +1,18 @@
-# 1. cAdvisor (Recolector de métricas de contenedores Docker)
+# 0. Redes aisladas para Observabilidad (Segmentación de tráfico)
+resource "docker_network" "monitoring_internal" {
+  count    = var.enable_monitoring ? 1 : 0
+  name     = "${var.environment}_monitoring_net"
+  driver   = "bridge"
+  internal = true
+}
+
+resource "docker_network" "monitoring_egress" {
+  count  = var.enable_monitoring ? 1 : 0
+  name   = "${var.environment}_monitoring_egress"
+  driver = "bridge"
+}
+
+# 1. cAdvisor (Solo accesible en red interna de monitorización, sin puertos externos)
 resource "docker_image" "cadvisor" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "gcr.io/cadvisor/cadvisor:v0.49.1"
@@ -13,13 +27,8 @@ resource "docker_container" "cadvisor" {
   privileged = true
   command    = ["--docker_only=true"]
 
-  ports {
-    internal = 8080
-    external = 8080
-  }
-
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
   }
 
   volumes {
@@ -44,7 +53,7 @@ resource "docker_container" "cadvisor" {
   }
 }
 
-# 2. Prometheus (Base de datos de métricas y motor de alertas)
+# 2. Prometheus (Solo accesible por Grafana y Alertmanager en red interna)
 resource "docker_image" "prometheus" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "prom/prometheus:v2.53.0"
@@ -57,13 +66,8 @@ resource "docker_container" "prometheus" {
   image   = docker_image.prometheus[0].image_id
   restart = "unless-stopped"
 
-  ports {
-    internal = 9090
-    external = 9090
-  }
-
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
   }
 
   volumes {
@@ -80,7 +84,7 @@ resource "docker_container" "prometheus" {
   depends_on = [docker_container.cadvisor]
 }
 
-# 3. Loki (Almacenamiento centralizado de logs)
+# 3. Loki (Solo accesible por Alloy y Grafana en red interna)
 resource "docker_image" "loki" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "grafana/loki:3.1.0"
@@ -94,13 +98,8 @@ resource "docker_container" "loki" {
   restart = "unless-stopped"
   command = ["-config.file=/etc/loki/local-config.yaml"]
 
-  ports {
-    internal = 3100
-    external = 3100
-  }
-
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
   }
 
   volumes {
@@ -110,7 +109,7 @@ resource "docker_container" "loki" {
   }
 }
 
-# 4. Grafana Alloy (Agente recolector de logs de Docker)
+# 4. Grafana Alloy (Solo red interna, envía logs a Loki)
 resource "docker_image" "alloy" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "grafana/alloy:v1.3.1"
@@ -126,7 +125,7 @@ resource "docker_container" "alloy" {
   command = ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
 
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
   }
 
   volumes {
@@ -143,7 +142,7 @@ resource "docker_container" "alloy" {
   depends_on = [docker_container.loki]
 }
 
-# 5. Grafana (Visualización y Dashboard)
+# 5. Grafana (Único punto de entrada expuesto con autenticación)
 resource "docker_image" "grafana" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "grafana/grafana:11.1.0"
@@ -168,7 +167,10 @@ resource "docker_container" "grafana" {
   }
 
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
+  }
+  networks_advanced {
+    name = docker_network.monitoring_egress[0].name
   }
 
   volumes {
@@ -185,7 +187,7 @@ resource "docker_container" "grafana" {
   depends_on = [docker_container.prometheus, docker_container.loki]
 }
 
-# 6. Alertmanager (Envío de notificaciones a Discord)
+# 6. Alertmanager (Sin puertos entrantes; recibe de red interna y sale a Discord)
 resource "local_file" "alertmanager_conf" {
   count = var.enable_monitoring ? 1 : 0
   content = templatefile("${path.module}/../../../config/alertmanager/alertmanager.yml.tftpl", {
@@ -206,13 +208,11 @@ resource "docker_container" "alertmanager" {
   image   = docker_image.alertmanager[0].image_id
   restart = "unless-stopped"
 
-  ports {
-    internal = 9093
-    external = 9093
-  }
-
   networks_advanced {
-    name = var.network_name
+    name = docker_network.monitoring_internal[0].name
+  }
+  networks_advanced {
+    name = docker_network.monitoring_egress[0].name
   }
 
   volumes {
