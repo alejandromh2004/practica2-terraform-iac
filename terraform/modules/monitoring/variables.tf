@@ -13,3 +13,8 @@ variable "enable_monitoring" {
   type    = bool
   default = false
 }
+variable "discord_webhook_url" {
+  type      = string
+  default   = ""
+  sensitive = true
+}

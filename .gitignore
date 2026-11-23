@@ -13,3 +13,4 @@ __pycache__/
 crash.log
 *.tfplan
 .terraform.lock.hcl
+terraform/secret.auto.tfvars

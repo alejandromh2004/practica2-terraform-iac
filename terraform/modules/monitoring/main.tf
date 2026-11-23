@@ -184,3 +184,42 @@ resource "docker_container" "grafana" {
 
   depends_on = [docker_container.prometheus, docker_container.loki]
 }
+
+# 6. Alertmanager (Envío de notificaciones a Discord)
+resource "local_file" "alertmanager_conf" {
+  count = var.enable_monitoring ? 1 : 0
+  content = templatefile("${path.module}/../../../config/alertmanager/alertmanager.yml.tftpl", {
+    discord_webhook_url = var.discord_webhook_url
+  })
+  filename = "${path.module}/../../.terraform/alertmanager_${var.environment}.yml"
+}
+
+resource "docker_image" "alertmanager" {
+  count        = var.enable_monitoring ? 1 : 0
+  name         = "prom/alertmanager:v0.27.0"
+  keep_locally = true
+}
+
+resource "docker_container" "alertmanager" {
+  count   = var.enable_monitoring ? 1 : 0
+  name    = "${var.environment}-alertmanager"
+  image   = docker_image.alertmanager[0].image_id
+  restart = "unless-stopped"
+
+  ports {
+    internal = 9093
+    external = 9093
+  }
+
+  networks_advanced {
+    name = var.network_name
+  }
+
+  volumes {
+    container_path = "/etc/alertmanager/alertmanager.yml"
+    host_path      = abspath(local_file.alertmanager_conf[0].filename)
+    read_only      = true
+  }
+
+  depends_on = [docker_container.prometheus]
+}

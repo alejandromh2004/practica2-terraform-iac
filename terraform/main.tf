@@ -33,7 +33,7 @@ module "db" {
   enable_redis = local.env == "pro" ? true : false
 }
 
-# 3. Módulo de Almacenamiento de Objetos (MinIO / S3)
+# 3. Módulo de Almacenamiento de Objetos (SeaweedFS / S3)
 module "storage" {
   source         = "./modules/storage"
   environment    = local.env
@@ -70,8 +70,9 @@ module "webapp" {
 
 # 5. Módulo de Observabilidad (Métricas, Logs y Alertas)
 module "monitoring" {
-  source            = "./modules/monitoring"
-  environment       = local.env
-  network_name      = module.net.network_name
-  enable_monitoring = local.env == "pro" ? true : false
+  source              = "./modules/monitoring"
+  environment         = local.env
+  network_name        = module.net.network_name
+  enable_monitoring   = local.env == "pro" ? true : false
+  discord_webhook_url = var.discord_webhook_url
 }
