@@ -1,0 +1,19 @@
+events {}
+
+http {
+    upstream backend_nodes {
+        %{ for name in backend_names }
+        server ${name}:5000;
+        %{ endfor }
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend_nodes;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+}
