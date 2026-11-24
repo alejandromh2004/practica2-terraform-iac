@@ -208,7 +208,7 @@ resource "local_file" "alertmanager_conf" {
     discord_webhook_url = var.discord_webhook_url
   })
   filename        = "${path.module}/../../.terraform/alertmanager_${var.environment}.yml"
-  file_permission = "0600"
+  file_permission = "0644"
 }
 
 resource "docker_image" "alertmanager" {
