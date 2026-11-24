@@ -53,7 +53,7 @@ resource "docker_container" "cadvisor" {
   }
 }
 
-# 2. Prometheus (Solo accesible por Grafana y Alertmanager en red interna)
+# 2. Prometheus (Aislado de las apps y accesible solo desde 127.0.0.1:9090 en local)
 resource "docker_image" "prometheus" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "prom/prometheus:v2.53.0"
@@ -66,8 +66,17 @@ resource "docker_container" "prometheus" {
   image   = docker_image.prometheus[0].image_id
   restart = "unless-stopped"
 
+  ports {
+    ip       = "127.0.0.1"
+    internal = 9090
+    external = 9090
+  }
+
   networks_advanced {
     name = docker_network.monitoring_internal[0].name
+  }
+  networks_advanced {
+    name = docker_network.monitoring_egress[0].name
   }
 
   volumes {
@@ -142,7 +151,7 @@ resource "docker_container" "alloy" {
   depends_on = [docker_container.loki]
 }
 
-# 5. Grafana (Único punto de entrada expuesto con autenticación)
+# 5. Grafana (Punto de entrada visual con autenticación)
 resource "docker_image" "grafana" {
   count        = var.enable_monitoring ? 1 : 0
   name         = "grafana/grafana:11.1.0"
