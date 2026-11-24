@@ -17,6 +17,7 @@ resource "docker_container" "app_replicas" {
   hostname = "${var.environment}-app-${count.index + 1}"
   image    = docker_image.app.image_id
   restart  = "unless-stopped"
+  network_mode = "bridge"
 
   env = concat(
     [
@@ -61,6 +62,7 @@ resource "docker_container" "load_balancer" {
   name    = "${var.environment}-load-balancer"
   image   = docker_image.nginx.image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   ports {
     internal = 80

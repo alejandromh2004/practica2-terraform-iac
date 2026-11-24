@@ -24,6 +24,7 @@ resource "docker_container" "cadvisor" {
   name       = "${var.environment}-cadvisor"
   image      = docker_image.cadvisor[0].image_id
   restart    = "unless-stopped"
+  network_mode = "bridge"
   privileged = true
   command    = ["--docker_only=true"]
 
@@ -65,6 +66,7 @@ resource "docker_container" "prometheus" {
   name    = "${var.environment}-prometheus"
   image   = docker_image.prometheus[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   ports {
     ip       = "127.0.0.1"
@@ -105,6 +107,7 @@ resource "docker_container" "loki" {
   name    = "${var.environment}-loki"
   image   = docker_image.loki[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
   command = ["-config.file=/etc/loki/local-config.yaml"]
 
   networks_advanced {
@@ -130,6 +133,7 @@ resource "docker_container" "alloy" {
   name    = "${var.environment}-alloy"
   image   = docker_image.alloy[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
   user    = "root"
   command = ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
 
@@ -163,6 +167,7 @@ resource "docker_container" "grafana" {
   name    = "${var.environment}-grafana"
   image   = docker_image.grafana[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   env = [
     "GF_SECURITY_ADMIN_USER=admin",
@@ -217,6 +222,7 @@ resource "docker_container" "alertmanager" {
   name    = "${var.environment}-alertmanager"
   image   = docker_image.alertmanager[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   networks_advanced {
     name = docker_network.monitoring_internal[0].name

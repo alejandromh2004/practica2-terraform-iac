@@ -14,6 +14,7 @@ resource "docker_container" "db" {
   name  = "${var.environment}-postgres"
   image = docker_image.postgres.image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   env = [
     "POSTGRES_DB=${var.db_name}",
@@ -58,6 +59,7 @@ resource "docker_container" "redis" {
   name    = "${var.environment}-redis"
   image   = docker_image.redis[0].image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   networks_advanced {
     name = var.network_name

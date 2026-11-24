@@ -14,6 +14,7 @@ resource "docker_container" "minio" {
   name    = "${var.environment}-s3-storage"
   image   = docker_image.minio.image_id
   restart = "unless-stopped"
+  network_mode = "bridge"
 
   command = [
     "server",
