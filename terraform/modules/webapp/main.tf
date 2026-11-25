@@ -12,11 +12,11 @@ resource "docker_image" "app" {
 
 # 2. Despliegue de las réplicas de Flask
 resource "docker_container" "app_replicas" {
-  count    = var.app_replicas
-  name     = "${var.environment}-app-${count.index + 1}"
-  hostname = "${var.environment}-app-${count.index + 1}"
-  image    = docker_image.app.image_id
-  restart  = "unless-stopped"
+  count        = var.app_replicas
+  name         = "${var.environment}-app-${count.index + 1}"
+  hostname     = "${var.environment}-app-${count.index + 1}"
+  image        = docker_image.app.image_id
+  restart      = "unless-stopped"
   network_mode = "bridge"
 
   env = concat(
@@ -57,11 +57,11 @@ resource "local_file" "nginx_conf" {
   filename = "${path.module}/../../.terraform/nginx_${var.environment}.conf"
 }
 
-# 5. Contenedor Balanceador de Carga Nginx
+# 5. Contenedor Balanceador de Carga Nginx (se recrea automáticamente al cambiar local_file.nginx_conf)
 resource "docker_container" "load_balancer" {
-  name    = "${var.environment}-load-balancer"
-  image   = docker_image.nginx.image_id
-  restart = "unless-stopped"
+  name         = "${var.environment}-load-balancer"
+  image        = docker_image.nginx.image_id
+  restart      = "unless-stopped"
   network_mode = "bridge"
 
   ports {
@@ -79,5 +79,11 @@ resource "docker_container" "load_balancer" {
     read_only      = true
   }
 
-  depends_on = [docker_container.app_replicas]
+  lifecycle {
+    replace_triggered_by = [
+      local_file.nginx_conf
+    ]
+  }
+
+  depends_on = [docker_container.app_replicas, local_file.nginx_conf]
 }

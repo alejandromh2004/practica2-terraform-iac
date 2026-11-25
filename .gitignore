@@ -14,3 +14,4 @@ crash.log
 *.tfplan
 .terraform.lock.hcl
 terraform/secret.auto.tfvars
+.demo/
